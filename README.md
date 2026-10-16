@@ -48,3 +48,7 @@ python -m lumolm.train --data /path/to/your-corpus.txt --checkpoint checkpoints/
 ## License and data
 
 No external datasets or pretrained weights are included. Check dataset licenses and privacy before training or publication. This repository's source license has not been specified by the owner yet.
+
+## Train in GitHub Actions (CPU)
+
+Open **Actions → Train LumoLM (manual CPU) → Run workflow**. Enter the path to a committed UTF-8 corpus and 1–2000 optimizer steps. The job uploads a downloadable `lumolm-cpu-checkpoint` artifact for 14 days. Extract `manual.pt` and run inference locally using `python -m lumolm.generate --checkpoint manual.pt --prompt 'Hello'`. GitHub-hosted CPU runners are only suitable for tiny experiments. Training is **not** automatically scheduled, and Actions jobs finish after each run.
