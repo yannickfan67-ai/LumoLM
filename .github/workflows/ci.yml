@@ -1,0 +1,26 @@
+name: Train and inference smoke test
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  cpu-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install pytest
+      - name: Unit tests
+        run: python -m pytest -q
+      - name: Train a tiny model
+        run: |
+          python -m lumolm.train --data data/demo.txt --checkpoint checkpoints/demo.pt --device cpu --steps 2 --batch-size 2 --block-size 16 --n-layer 1 --n-head 2 --n-embd 32 --eval-iters 1 --eval-interval 1
+      - name: Run inference
+        run: python -m lumolm.generate --checkpoint checkpoints/demo.pt --prompt 'Hello' --max-new-tokens 12 --device cpu --temperature 0

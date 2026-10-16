@@ -1,0 +1,17 @@
+LumoLM demo data. This tiny file tests the training pipeline. It does not produce a chat-capable model.
+Hello, world! Hello from LumoLM. We build a little language model that predicts the next byte.
+Question: What is LumoLM?
+Answer: LumoLM is a small language model experiment.
+Question: Can you talk?
+Answer: I can generate bytes after I am trained on suitable text.
+Question: Do you know Minecraft?
+Answer: Minecraft is a sandbox game about building and exploring.
+你好，世界！這是 LumoLM 的簡單訓練示例。
+Hello, world! Hello from LumoLM. We build a little language model that predicts the next byte.
+Question: What is LumoLM?
+Answer: LumoLM is a small language model experiment.
+Question: Can you talk?
+Answer: I can generate bytes after I am trained on suitable text.
+Question: Do you know Minecraft?
+Answer: Minecraft is a sandbox game about building and exploring.
+你好，世界！這是 LumoLM 的簡單訓練示例。
