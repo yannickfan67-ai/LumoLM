@@ -1,0 +1,119 @@
+name: Extended LumoLM pretraining experiments
+on:
+  pull_request:
+    paths:
+      - "lumolm/train.py"
+      - "scripts/build_code_corpus.py"
+      - "scripts/evaluate_text.py"
+      - "tests/test_extended_training.py"
+      - ".github/workflows/extended-train.yml"
+  workflow_dispatch:
+jobs:
+  story-long:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    permissions:
+      contents: read
+    env:
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install CPU PyTorch and pytest
+        run: |
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install pytest
+      - name: Verify code and sampler tests
+        run: python -m pytest -q tests/test_stories.py tests/test_extended_training.py
+      - name: Fetch 16 MiB training and 1 MiB independent validation stories
+        run: |
+          python scripts/sample_tinystories.py \
+            --max-train-bytes 16777216 --max-val-bytes 1048576
+      - name: Pretrain bigger story GPT from scratch for 12000 steps
+        run: |
+          python -m lumolm.train --data data/tinystories_sample/train.txt \
+            --val-data data/tinystories_sample/validation.txt \
+            --checkpoint checkpoints/story-long-last.pt \
+            --best-checkpoint checkpoints/story-long-best.pt \
+            --device cpu --threads 2 --steps 12000 --batch-size 8 \
+            --block-size 256 --n-layer 4 --n-head 4 --n-embd 128 \
+            --lr 0.0005 --min-lr 0.00008 --warmup-steps 300 \
+            --eval-interval 2000 --eval-iters 16 | tee story-long-training.log
+      - name: Evaluate best story model against held-out source
+        run: |
+          PYTHONPATH=. python scripts/evaluate_text.py \
+            --checkpoint checkpoints/story-long-best.pt \
+            --validation data/tinystories_sample/validation.txt \
+            --prompt "Once upon a time" \
+            --prompt "The little girl found a" \
+            --prompt "One day, Tom wanted" \
+            --device cpu --threads 2 --batches 20 | tee story-long-eval.log
+      - name: Save reproducible story model artifacts and provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: lumolm-story-16m-12000steps
+          path: |
+            checkpoints/story-long-best.pt
+            checkpoints/story-long-last.pt
+            story-long-training.log
+            story-long-eval.log
+            data/tinystories_sample/SOURCE.json
+          if-no-files-found: error
+          retention-days: 14
+
+  code-long:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    env:
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install CPU PyTorch and pytest
+        run: |
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install pytest
+      - name: Verify code corpus and training features
+        run: python -m pytest -q tests/test_extended_training.py
+      - name: Generate original 3 MB Python corpus and independent 300 KB validation
+        run: |
+          python scripts/build_code_corpus.py \
+            --train-bytes 3000000 --val-bytes 300000
+      - name: Pretrain separate code completion model from scratch for 8000 steps
+        run: |
+          python -m lumolm.train --data data/code_generated/train.txt \
+            --val-data data/code_generated/validation.txt \
+            --checkpoint checkpoints/code-last.pt \
+            --best-checkpoint checkpoints/code-best.pt \
+            --device cpu --threads 2 --steps 8000 --batch-size 8 \
+            --block-size 192 --n-layer 3 --n-head 4 --n-embd 96 \
+            --lr 0.0006 --min-lr 0.00008 --warmup-steps 200 \
+            --eval-interval 1600 --eval-iters 12 | tee code-long-training.log
+      - name: Evaluate genuine code completions, no code execution
+        run: |
+          PYTHONPATH=. python scripts/evaluate_text.py \
+            --checkpoint checkpoints/code-best.pt \
+            --validation data/code_generated/validation.txt \
+            --prompt "# Task: Write Python to square x.\ndef square_demo(x):\n    " \
+            --prompt "def multiply(a, b):\n    " \
+            --device cpu --threads 2 --batches 16 | tee code-long-eval.log
+      - name: Save code completion checkpoint and data provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: lumolm-code-3m-8000steps
+          path: |
+            checkpoints/code-best.pt
+            checkpoints/code-last.pt
+            code-long-training.log
+            code-long-eval.log
+            data/code_generated/SOURCE.json
+          if-no-files-found: error
+          retention-days: 14
