@@ -3,7 +3,7 @@ import pytest
 import torch
 
 from lumolm.addition import (
-    TASK, create_splits, encoded_prompt, example_for, held_out, predict, prompt_for,
+    TASK, create_splits, example_for, held_out, predict, prompt_for,
     training_batch,
 )
 from lumolm.model import GPT, GPTConfig
