@@ -4,6 +4,52 @@ An **experimental, from-scratch byte-level GPT** implemented in PyTorch. It incl
 
 **Current status:** Code and a very small example corpus are provided. The example can verify the full training/inference path, but it **cannot** train an assistant or useful large language model. Training a capable LLM needs much more carefully licensed data, compute and evaluation. No pretrained weights are bundled.
 
+## Neural code repair and refactoring research (new)
+
+The **first real code-edit specialist** is trained on pairs of deliberately
+buggy/redundant short Python functions and their corrected/simplified return
+lines. Unlike the existing Workbench template coder, this Transformer
+**predicts each edited line with learned neural weights**, not a Python
+replace rule or hard-coded reference solution.
+
+The experiment includes **10 patterns** (6 tiny bug fixes and 4
+single-return-line refactors), 16 variable choices, and 48 different
+function identities per pattern. Exact input-output pairs are disjoint
+between train and held-out evaluation, **but the transformation patterns
+are deliberately shared**. This is an in-distribution benchmark and must
+not be interpreted as unseen-algorithm generalization.
+
+The implementation trains a 378,720-parameter, 192-byte-context byte-level
+Transformer for 8,000 steps with an **answer-only masked loss**, and selects
+the checkpoint with the lowest held-out token loss. The GitHub experiment
+then measures **exact-match model-generated edits on the entire held-out
+set**, plus actual single-file candidate generation and static syntax
+validation. Evaluation never replaces neural responses with a computed
+reference answer.
+
+```bash
+python -m lumolm.repair --train --steps 8000 --device cpu \
+  --checkpoint checkpoints/repair.pt --eval-limit 250
+python -m lumolm.repair --evaluate --checkpoint checkpoints/repair.pt \
+  --eval-limit 0
+python -m lumolm.repair_file --checkpoint checkpoints/repair.pt \
+  --input broken.py --output candidate.py --kind fix
+python -m lumolm.repair_file --checkpoint checkpoints/repair.pt \
+  --input redundant.py --output refactored.py --kind refactor
+```
+
+The file command only accepts a **single Python function with 1 simple
+positional argument and 1-2 statements**, emits only a single replacement
+`return` line, performs AST validation without execution, and writes
+to a new destination without overwriting anything. Candidate edits may
+be wrong; inspect and run tests separately. Requests larger than the
+model's actual byte context are rejected, not silently truncated.
+
+**Not yet supported:** repair of the prior 2 KB invoice spaghetti code,
+multi-function files, arbitrary AST transformations, project-wide
+refactoring, imports, or automatic bug diagnosis based on failing tests.
+We expect significant failures outside the narrow synthetic distribution.
+
 ## Automatic LumoLM tasks and Python code generation
 
 Natural-language prompts now route through a visible rule-based task
