@@ -196,6 +196,8 @@ class Workbench:
             raw = value.strip().encode("utf-8")
             completed = model.generate(raw, self.max_new_tokens, temperature=0.8)
             return self.response(completed.decode("utf-8", "replace"), "neural:story")
+        if not message.startswith("/") and MATH.fullmatch(message) and any(ch in message for ch in "+-*/%"):
+            return self.response(safe_calc(message), "tool:calculator")
         if cmd == "/chat" or not message.startswith("/"):
             query = value if cmd == "/chat" else message
             return self.response(self.model("chat").ask(query), "neural:toy-chat")
