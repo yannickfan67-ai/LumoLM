@@ -56,8 +56,13 @@ def build_records():
 
 def masked_batch(records,count,block_size,device):
     rows=random.choices(records,k=count)
-    x=torch.zeros((count,block_size),dtype=torch.long)
-    y=torch.full((count,block_size),-100,dtype=torch.long)
+    # Efficient dynamic padding: the model allows up to block_size,
+    # but paying attention across unused 192-byte padding wastes most CPU time.
+    max_t=max(len((row["prompt"]+row["answer"]).encode("utf8"))-1 for row in rows)
+    if max_t>block_size:
+        raise ValueError("edit examples exceed model context")
+    x=torch.zeros((count,max_t),dtype=torch.long)
+    y=torch.full((count,max_t),-100,dtype=torch.long)
     for i,row in enumerate(rows):
         prefix=row["prompt"].encode("utf8")
         answer=row["answer"].encode("utf8")
