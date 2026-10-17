@@ -35,6 +35,58 @@ Start with `/help`, `/models`, `3+3`, `/calc (12+7)*3`, `/story Once upon a time
 or `/notes add something`. See [WORKBENCH.md](WORKBENCH.md) for all
 commands, setup, file-safety rules and exact limitations.
 
+## Larger data and longer training experiments
+
+LumoLM now includes a reproducible **experimental** CPU training workflow
+(`.github/workflows/extended-train.yml`) that trains **two separate**
+byte-level GPT models with independent validation data. Results are judged
+by validation loss and verbatim generated continuations, not by successful
+execution alone.
+
+| Model | Training data | Held-out data | Steps | Architecture |
+|---|---:|---:|---:|---|
+| TinyStories continuation | 16 MiB licensed upstream text sample | 1 MiB independent official validation split | 12,000 | 4 layers, 4 heads, 128 embedding, 256 byte context |
+| Original synthetic Python completion | 3 MB original generated short functions | 300 KB different generated functions | 8,000 | 3 layers, 4 heads, 96 embedding, 192 byte context |
+
+Both train **from scratch**, with warmup, cosine learning-rate decay,
+gradient clipping, and a checkpoint selected at the lowest held-out
+validation loss. `--best-checkpoint` and the existing last checkpoint
+are separate, with SHA-256 fingerprints for the training and validation
+sources. Models and provenance manifests are uploaded as GitHub Actions
+artifacts; the raw TinyStories and Python corpus texts are NOT uploaded.
+
+To generate the code dataset and train locally:
+
+```bash
+python scripts/build_code_corpus.py --train-bytes 3000000 --val-bytes 300000
+python -m lumolm.train --data data/code_generated/train.txt \
+  --val-data data/code_generated/validation.txt \
+  --checkpoint checkpoints/code-last.pt \
+  --best-checkpoint checkpoints/code-best.pt --device cpu --threads 2 \
+  --steps 8000 --block-size 192 --batch-size 8 \
+  --n-layer 3 --n-head 4 --n-embd 96 --lr 0.0006 \
+  --min-lr 0.00008 --warmup-steps 200 --eval-interval 1600
+PYTHONPATH=. python scripts/evaluate_text.py \
+  --checkpoint checkpoints/code-best.pt \
+  --validation data/code_generated/validation.txt --prompt "def "
+```
+
+The Python code corpus is **not a broad programming benchmark**. It is
+generated from 20 short function patterns; although parameters and examples
+are disjoint, the underlying patterns are shared between splits. A low loss
+or syntactically plausible continuation does **not** imply an ability to
+write arbitrary code, and no generated Python is automatically executed.
+The Workbench's current reliable code-writing path remains a **transparent
+template generator**. The new neural code checkpoint is an optional research
+artifact, not used as an automatic replacement.
+
+The story dataset is sourced from
+[roneneldan/TinyStories](https://huggingface.co/datasets/roneneldan/TinyStories)
+and retains its upstream CDLA-Sharing-1.0 attribution manifest; review the
+upstream license before redistribution. 16 MiB is only a *sample* of the
+dataset, not full training on the whole corpus. Neither new checkpoint is
+Lumo-270M.
+
 ## Quick start
 
 Python 3.10+ is recommended. Install PyTorch appropriate for your machine (CUDA, MPS, or CPU), then:
