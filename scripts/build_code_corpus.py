@@ -50,7 +50,7 @@ def format_example(rng: random.Random, i: int) -> str:
     k = rng.randint(2, 24)
     lo = rng.randint(-15, 5)
     hi = lo + rng.randint(10, 60)
-    function_name = f"{key}_{rng.choice(('basic','simple','safe','fast','local'))}_{i % 97}"
+    function_name = f"{key}_{rng.choice(('basic','simple','safe','fast','local'))}_{i}"
     # The random numeric constant and function name create parameter diversity,
     # but structures are shared and held-out scores reflect that limited scope.
     desc = explanation.format(x=x, y=y, k=k, lo=lo, hi=hi)
