@@ -144,12 +144,16 @@ class GPT(nn.Module):
 
     @torch.no_grad()
     def generate(self, prompt: bytes, n_tokens: int, temperature: float = 0.8,
-                 top_k: int = 40, use_kv_cache: bool = True) -> bytes:
+                 top_k: int = 40, use_kv_cache: bool = True,
+                 stop_sequences: tuple[bytes, ...] = ()) -> bytes:
         if n_tokens < 0 or temperature < 0 or top_k < 0:
             raise ValueError("n_tokens, temperature, and top_k must be nonnegative")
+        if any(not isinstance(stop, bytes) or not stop for stop in stop_sequences):
+            raise ValueError('stop sequences must be nonempty byte strings')
         self.eval()
         device = next(self.parameters()).device
         sequence = bytearray(prompt if prompt else b"\n")
+        initial_length = len(sequence)
         past = None
         for _ in range(n_tokens):
             if not use_kv_cache:
@@ -176,4 +180,7 @@ class GPT(nn.Module):
                     scores = scores.masked_fill(scores < kth, float("-inf"))
                 token = int(torch.multinomial(F.softmax(scores, dim=-1), 1).item())
             sequence.append(token)
+            for stop in stop_sequences:
+                if len(sequence) - initial_length >= len(stop) and sequence.endswith(stop):
+                    return bytes(sequence[:-len(stop)])
         return bytes(sequence)
