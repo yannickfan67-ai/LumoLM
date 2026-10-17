@@ -92,6 +92,34 @@ checkpoint is a from-scratch ~0.36M-parameter experiment, **not Lumo-270M**.
 Training data/validation hashes are recorded to prevent accidental resume
 on changed source content. Generated datasets and checkpoints are ignored by Git.
 
+## Answer-only supervised experiment
+
+The earlier 6,000-step run used a byte-level *next-token* objective over
+concatenated Q/A text. It learned to imitate the dataset format but was
+unreliable even on arithmetic. To evaluate a more appropriate objective,
+LumoLM now supports `--task qa`. Each Question/Answer record is a separate
+training example; **question text and padding are excluded from the loss**,
+while the model learns to generate the answer and a final newline.
+Training on QA requires an independent `--val-data` file and a longer
+context window to preserve the complete prompt. The checkpoint records the
+task so it cannot be resumed using the wrong objective.
+
+```bash
+python scripts/build_corpus.py
+python -m lumolm.train --task qa --data data/expanded_train.txt \
+  --val-data data/expanded_val.txt --checkpoint checkpoints/qa.pt \
+  --steps 6000 --batch-size 8 --block-size 192 --n-layer 3 \
+  --n-head 4 --n-embd 96 --lr 0.0005 --device auto \
+  --eval-interval 3000 --eval-iters 8
+PYTHONPATH=. python scripts/evaluate_math.py --checkpoint checkpoints/qa.pt \
+  --train data/expanded_train.txt --val data/expanded_val.txt
+```
+
+This remains a small synthetic model without genuine mathematical reasoning.
+Correct answers to examples seen in training do not imply out-of-domain
+generalization. The conventional language-model objective remains the default
+so older checkpoints and training commands retain compatibility.
+
 ## Train your own model
 
 Use a sufficiently large, UTF-8 **plain text** corpus you have permission to use. By default, training/validation are split contiguously (last 10% used for validation). To avoid data leakage, prefer **a separate held-out validation corpus** using `--val-data` and ensure examples/topics do not overlap. Do not add secrets or private data to your corpus. Example:
