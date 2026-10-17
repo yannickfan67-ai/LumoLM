@@ -4,6 +4,19 @@ An **experimental, from-scratch byte-level GPT** implemented in PyTorch. It incl
 
 **Current status:** Code and a very small example corpus are provided. The example can verify the full training/inference path, but it **cannot** train an assistant or useful large language model. Training a capable LLM needs much more carefully licensed data, compute and evaluation. No pretrained weights are bundled.
 
+## Automatic LumoLM tasks and Python code generation
+
+Natural-language prompts now route through a visible rule-based task
+controller, and can create simple Python programs with a syntax check
+and workspace-only file save. For example, enter
+`幫我寫 Python 斐波那契函數，保存為 fib.py` or
+`計算 (12+7)*3` directly without typing a command prefix.
+Use `/trace` to inspect the last set of controller actions.
+This is **limited template-based code synthesis, not a trained coding LLM**
+and generated code is never automatically executed.
+See [WORKBENCH.md](WORKBENCH.md) for supported recipes, security rules
+and task routing behavior.
+
 ## Unified offline Workbench
 
 The new Workbench combines the toy FAQ chat, TinyStories text continuation and
