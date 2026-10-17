@@ -22,6 +22,9 @@ FILE_FIND = re.compile(r"^\s*(?:查找|尋找|查找|搜索|搜尋|find|search)\
 def decide_request(message: str):
     """Return intent + payload, or fallback. Rules are intentionally limited."""
     text = message.strip()
+    match = CHECK.fullmatch(text)
+    if match:
+        return "check", match.group(1)
     if is_code_request(text):
         return "code", text
     match = SAVE_NOTE.fullmatch(text)
@@ -61,6 +64,7 @@ class AutoAgent:
 
     def execute(self, message: str):
         intent, payload = decide_request(message)
+        self.hub.last_trace = self.steps
         self.note("route", intent)
         if intent == "code":
             draft = generate_code(payload)
@@ -89,6 +93,14 @@ class AutoAgent:
         if intent == "calculate":
             self.note("calculate", "bounded deterministic calculator")
             result = self.hub.handle("/calc " + payload)
+            from .addition import QUESTION
+            if QUESTION.fullmatch(payload) and self.hub.paths["addition"].is_file():
+                self.note("cross-check", "run separate neural adder as a diagnostic, not as the source of truth")
+                neural = self.hub.handle("/add " + payload)
+                result = {
+                    "text": result["text"] + "\nNeural add (unverified): " + neural["text"],
+                    "source": "hybrid:calculator+neural-addition",
+                }
         elif intent == "save_note":
             self.note("write-note", "persistent note store inside workspace")
             result = self.hub.handle("/notes add " + payload)
