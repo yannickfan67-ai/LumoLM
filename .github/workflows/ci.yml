@@ -30,7 +30,7 @@ jobs:
         env:
           OMP_NUM_THREADS: "2"
         run: |
-          python -m lumolm.train --data data/expanded_train.txt --val-data data/expanded_val.txt --checkpoint checkpoints/probe.pt --device cpu --steps 2400 --batch-size 8 --block-size 128 --n-layer 3 --n-head 4 --n-embd 96 --lr 0.0007 --eval-interval 1200 --eval-iters 8
+          python -m lumolm.train --data data/expanded_train.txt --val-data data/expanded_val.txt --checkpoint checkpoints/probe.pt --device cpu --steps 6000 --batch-size 8 --block-size 128 --n-layer 3 --n-head 4 --n-embd 96 --lr 0.0007 --eval-interval 3000 --eval-iters 8
       - name: Measure seen, unseen and out-of-domain answers
         env:
           OMP_NUM_THREADS: "2"
