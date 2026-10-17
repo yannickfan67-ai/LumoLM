@@ -20,7 +20,7 @@ are deliberately shared**. This is an in-distribution benchmark and must
 not be interpreted as unseen-algorithm generalization.
 
 The implementation trains a 378,720-parameter, 192-byte-context byte-level
-Transformer for 8,000 steps with an **answer-only masked loss**, and selects
+Transformer for 6,000 steps with an **answer-only masked loss**, and selects
 the checkpoint with the lowest held-out token loss. The GitHub experiment
 then measures **exact-match model-generated edits on the entire held-out
 set**, plus actual single-file candidate generation and static syntax
@@ -28,7 +28,7 @@ validation. Evaluation never replaces neural responses with a computed
 reference answer.
 
 ```bash
-python -m lumolm.repair --train --steps 8000 --device cpu \
+python -m lumolm.repair --train --steps 6000 --device cpu \
   --checkpoint checkpoints/repair.pt --eval-limit 250
 python -m lumolm.repair --evaluate --checkpoint checkpoints/repair.pt \
   --eval-limit 0
