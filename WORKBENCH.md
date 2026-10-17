@@ -83,7 +83,7 @@ Script-friendly one shot:
 
     python3 lumolm_workbench.py --workspace ./my-work --message "3+3" --message "/calc 4*5" --message "/models" --json
 
-A plain A+B with two operands in 0..99 goes to the learned model (if the addition weight file is installed), not the reliable calculator. The program warns when the learned answer disagrees with tool verification instead of secretly correcting neural output. Other plain numerical expressions use the calculator. General prose uses the low-quality toy FAQ model. The story model is used ONLY with /story.
+In automatic mode, plain A+B is calculated with the reliable calculator; if the addition weight exists, its separate neural prediction is displayed as a cross-check. The program warns when the learned answer disagrees with tool verification instead of secretly correcting neural output. Other plain numerical expressions use the calculator. General prose uses the low-quality toy FAQ model. The story model is used ONLY with /story.
 
 The /stats, /summary and /find tools access only relative text files inside --workspace, maximum 1 MiB per file; symlinks to outside are blocked. Notes are saved at --workspace/.lumolm/notes.json, and can only be cleared on explicit request. This program does not browse the web, execute shell commands, write arbitrary files, or access private directories.
 
