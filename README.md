@@ -53,8 +53,11 @@ python -m lumolm.chat --checkpoint checkpoints/demo.pt --device cpu
 
 Chat uses the sample corpus' `Question: ...\\nAnswer:` framing, maintains a short
 conversation history, and stops generating at the first newline instead of
-continuing into the next simulated user turn. Since the bundled corpus is only
-944 bytes, even a 400-step checkpoint can only imitate its handful of examples.
+continuing into the next simulated user turn. The default `data/demo.txt` is just 944 bytes, so a checkpoint trained on it can
+only imitate its handful of examples. An additional, **synthetic and repetitive**
+bilingual `data/dialogue_demo.txt` corpus is included for reproducible dialogue
+experiments. It demonstrates learning/memorization, NOT broad generalization.
+CI intentionally probes questions absent from that dataset too.
 The terminal interface cannot make it knowledgeable or reliable. For reproducible
 probes run `PYTHONPATH=. python scripts/probe_chat.py --checkpoint checkpoints/demo.pt`.
 
