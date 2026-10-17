@@ -1,0 +1,45 @@
+name: Licensed corpus sample training
+on:
+  pull_request:
+    paths:
+      - scripts/sample_tinystories.py
+      - tests/test_stories.py
+      - .github/workflows/story-sample.yml
+  workflow_dispatch:
+jobs:
+  sample-and-train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      OMP_NUM_THREADS: "2"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU-only PyTorch
+        run: |
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install pytest
+      - name: Verify data import tests
+        run: python -m pytest -q tests/test_stories.py
+      - name: Sample independent real stories and preserve provenance
+        run: |
+          python scripts/sample_tinystories.py --max-train-bytes 2097152 --max-val-bytes 262144
+      - name: Train a small language model on licensed story text
+        run: |
+          python -m lumolm.train --data data/tinystories_sample/train.txt --val-data data/tinystories_sample/validation.txt --checkpoint checkpoints/story.pt --device cpu --steps 600 --batch-size 8 --block-size 128 --n-layer 2 --n-head 2 --n-embd 64 --lr 0.0007 --eval-interval 300 --eval-iters 5
+      - name: Test story completion (not chat quality)
+        run: |
+          python -m lumolm.generate --checkpoint checkpoints/story.pt --prompt 'Once upon a time' --max-new-tokens 90 --device cpu --temperature 0
+      - name: Upload experimental weight file with source provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: lumolm-tinystories-sample-checkpoint
+          path: |
+            checkpoints/story.pt
+            data/tinystories_sample/SOURCE.json
+          if-no-files-found: error
+          retention-days: 7
