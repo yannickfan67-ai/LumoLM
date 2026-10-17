@@ -5,6 +5,9 @@ on:
       - "lumolm/workbench.py"
       - "lumolm_workbench.py"
       - "tests/test_workbench.py"
+      - "tests/test_auto.py"
+      - "lumolm/codegen.py"
+      - "lumolm/auto.py"
       - ".github/workflows/workbench-bundle.yml"
       - "WORKBENCH.md"
   workflow_dispatch:
@@ -27,7 +30,7 @@ jobs:
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
           python -m pip install pytest
       - name: Test workbench and dependencies
-        run: python -m pytest -q tests/test_workbench.py
+        run: python -m pytest -q tests/test_workbench.py tests/test_auto.py
       - name: Download previously trained synthetic FAQ model
         uses: actions/download-artifact@v4
         with:
@@ -107,6 +110,7 @@ jobs:
           cd LumoLM-Workbench
           python lumolm_workbench.py --device cpu --threads 2 --message "/models" --message "3+3" --message "/calc 3+3" --message "3*3" --message "/story Once upon a time" --message "/chat What is LumoLM?" --json
           python lumolm_workbench.py --device cpu --threads 2 --message "/notes add testing notes" --message "/notes list" --json
+          python lumolm_workbench.py --device cpu --threads 2 --workspace ./auto-test --message "write a Python Fibonacci function to fibonacci.py" --message "/check fibonacci.py" --message "计算 4*5" --message "/trace" --json
       - name: Upload complete offline Workbench package
         uses: actions/upload-artifact@v4
         with:

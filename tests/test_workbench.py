@@ -67,12 +67,18 @@ def test_routing_neural_models_without_faking_outputs(monkeypatch, tmp_path):
         "addition": Addition(), "story": Story(), "chat": Chat()}[role])
     monkeypatch.setattr("lumolm.workbench.predict",
                         lambda model, a, b: (99, "990"))
+    # Unprefixed math is now transparently routed to the reliable calculator.
     ans = hub.handle("3+3")
-    assert ans["source"] == "neural:addition"
-    assert ans["text"].startswith("99")
-    assert "WARNING" in ans["text"]  # Do not mask incorrect model predictions
+    assert ans["source"] == "tool:calculator"
+    assert ans["text"] == "6"
+    assert ans["trace"][0]["detail"] == "calculate"
+    # Explicit neural testing still shows the raw wrong model prediction.
+    neural = hub.handle("/add 3+3")
+    assert neural["source"] == "neural:addition"
+    assert neural["text"].startswith("99")
+    assert "WARNING" in neural["text"]
     assert hub.handle("/calc 3+3") == {"text": "6", "source": "tool:calculator"}
-    assert hub.handle("3*3") == {"text": "9", "source": "tool:calculator"}
+    assert hub.handle("3*3")["text"] == "9"
     assert hub.handle("/chat Hello")["source"] == "neural:toy-chat"
     assert hub.handle("/story Once upon a time")["text"].endswith("a fox ran.")
 
