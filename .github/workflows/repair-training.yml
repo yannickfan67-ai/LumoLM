@@ -1,0 +1,79 @@
+name: Neural code repair/refactor experiment
+on:
+  pull_request:
+    paths:
+      - "lumolm/repair.py"
+      - "lumolm/repair_file.py"
+      - "tests/test_repair.py"
+      - ".github/workflows/repair-training.yml"
+  workflow_dispatch:
+jobs:
+  neural-repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    env:
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install CPU PyTorch and tests
+        run: |
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install pytest
+      - name: Check disjoint training and test pairs, AST validation and genuine model output
+        run: python -m pytest -q tests/test_repair.py
+      - name: Train LumoLM supervised paired short Python bugfix and refactor model
+        run: |
+          python -m lumolm.repair --train --device cpu --threads 2 \
+            --steps 6000 --batch-size 24 --eval-interval 1000 \
+            --checkpoint checkpoints/repair.pt --eval-limit 250 \
+            | tee repair-training.log
+      - name: Re-evaluate saved checkpoint independently on heldout code pairs
+        run: |
+          python -m lumolm.repair --evaluate --device cpu --threads 2 \
+            --checkpoint checkpoints/repair.pt --eval-limit 0 | tee repair-eval.log
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          records = [json.loads(line.partition("REPAIR_EVAL=")[2])
+                     for line in Path("repair-eval.log").read_text().splitlines()
+                     if line.startswith("REPAIR_EVAL=")]
+          assert len(records) == 1
+          result=records[0]
+          print(f"FULL_HELDOUT={result['correct']}/{result['total']} "
+                f"ACCURACY={result['accuracy']}")
+          if result["accuracy"] < 0.20:
+              raise SystemExit("Learned editing accuracy too low: 20% gate not met")
+          PY
+      - name: Attempt actual single-file edit from the saved neural checkpoint
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from lumolm.repair import build_records
+          _, heldout = build_records()
+          row=next(x for x in heldout if x["pattern"] == "fix_even")
+          Path("heldout_broken.py").write_text(row["broken"],encoding="utf8")
+          Path("EXPECTED_NOT_USED_BY_INFERENCE.txt").write_text(row["correct"],encoding="utf8")
+          PY
+          python -m lumolm.repair_file --input heldout_broken.py \
+            --output neural_candidate.py --checkpoint checkpoints/repair.pt --kind fix
+          python -m py_compile neural_candidate.py
+          cat neural_candidate.py
+      - name: Upload real model weights and evaluation evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: lumolm-neural-code-repair-6000
+          path: |
+            checkpoints/repair.pt
+            repair-training.log
+            repair-eval.log
+            heldout_broken.py
+            neural_candidate.py
+            EXPECTED_NOT_USED_BY_INFERENCE.txt
+          if-no-files-found: error
+          retention-days: 14
