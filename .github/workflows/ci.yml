@@ -35,3 +35,10 @@ jobs:
         run: |
           python -m lumolm.chat --checkpoint checkpoints/probe.pt --question 'What is LumoLM?' --device cpu --max-new-tokens 90
           python -m lumolm.chat --checkpoint checkpoints/probe.pt --question '你好嗎？' --device cpu --max-new-tokens 90
+      - name: Upload demonstration dialogue checkpoint
+        uses: actions/upload-artifact@v4
+        with:
+          name: lumolm-dialogue-checkpoint
+          path: checkpoints/probe.pt
+          if-no-files-found: error
+          retention-days: 7
