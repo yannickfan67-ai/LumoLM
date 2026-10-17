@@ -4,6 +4,24 @@ An **experimental, from-scratch byte-level GPT** implemented in PyTorch. It incl
 
 **Current status:** Code and a very small example corpus are provided. The example can verify the full training/inference path, but it **cannot** train an assistant or useful large language model. Training a capable LLM needs much more carefully licensed data, compute and evaluation. No pretrained weights are bundled.
 
+## Unified offline Workbench
+
+The new Workbench combines the toy FAQ chat, TinyStories text continuation and
+learned 0–99 addition as *separately loaded checkpoints* behind one CLI. It also
+provides safe calculator, note-taking, workspace text search, file statistics
+and extractive previews with clear provenance tags. It does not average neural
+weights or claim broad autonomous reasoning.
+
+With a bundled package containing all three checkpoints:
+
+```bash
+python3 lumolm_workbench.py --workspace ./my-work --device cpu --threads 2
+```
+
+Start with `/help`, `/models`, `3+3`, `/calc (12+7)*3`, `/story Once upon a time`
+or `/notes add something`. See [WORKBENCH.md](WORKBENCH.md) for all
+commands, setup, file-safety rules and exact limitations.
+
 ## Quick start
 
 Python 3.10+ is recommended. Install PyTorch appropriate for your machine (CUDA, MPS, or CPU), then:
