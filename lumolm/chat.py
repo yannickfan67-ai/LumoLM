@@ -21,11 +21,35 @@ class LumoChat:
         self.top_k = top_k
         self.turns: list[str] = []
 
+    def _make_prompt(self, question: str) -> bytes:
+        # Byte-level LumoLM uses a *byte* context window, not words/tokens.
+        # The previous implementation joined all old turns first; generate()
+        # silently discarded the beginning of the prompt, sometimes including
+        # the current question. Select fitting history BEFORE inference.
+        current = f"Question: {question}\nAnswer:".encode("utf-8")
+        limit = self.model.config.block_size
+        if len(current) > limit:
+            raise ValueError(
+                f"question requires {len(current)} bytes with the Q/A template, "
+                f"but this checkpoint only supports {limit} context bytes; "
+                "shorten the question or train a model with a larger block_size"
+            )
+        parts = [current]
+        self.last_history_turns = 0
+        for previous in reversed(self.turns):
+            encoded = previous.encode("utf-8")
+            used = sum(len(part) for part in parts) + len(parts)
+            if used + len(encoded) > limit:
+                break
+            parts.insert(0, encoded)
+            self.last_history_turns += 1
+        return b"\n".join(parts)
+
     def ask(self, question: str) -> str:
         question = question.strip().replace("\r", " ").replace("\n", " ")
         if not question:
             raise ValueError("question cannot be empty")
-        prompt = "\n".join(self.turns + [f"Question: {question}\nAnswer:"]).encode("utf-8")
+        prompt = self._make_prompt(question)
         raw = self.model.generate(
             prompt, n_tokens=self.max_new_tokens, temperature=self.temperature,
             top_k=self.top_k, stop_sequences=(b"\n",)
@@ -33,10 +57,10 @@ class LumoChat:
         completion = raw[len(prompt):]
         answer = completion.decode("utf-8", errors="replace").strip()
         self.turns.append(f"Question: {question}\nAnswer: {answer}")
-        # Preserve only dialogue text that fits roughly within the context window.
-        # Byte-based generation already truncates the complete prompt exactly.
-        while len(self.turns) > 1 and len("\n".join(self.turns).encode("utf-8")) > self.model.config.block_size:
-            self.turns.pop(0)
+        # The model cannot retain a long conversation in its current window.
+        # Bound Python-side history too, and keep only useful recent context.
+        if len(self.turns) > 64:
+            self.turns = self.turns[-64:]
         return answer
 
 
@@ -48,6 +72,8 @@ def main(argv=None):
     p.add_argument("--max-new-tokens", type=int, default=120)
     p.add_argument("--temperature", type=float, default=0.0)
     p.add_argument("--top-k", type=int, default=40)
+    p.add_argument("--show-context", action="store_true",
+                   help="report how many previous dialogue turns fit in the byte context window")
     args = p.parse_args(argv)
     if args.max_new_tokens < 1:
         p.error("--max-new-tokens must be positive")
@@ -63,6 +89,8 @@ def main(argv=None):
         for question in args.question:
             print("You:", question)
             print("LumoLM:", chat.ask(question))
+            if args.show_context:
+                print(f"[diagnostic] retained prior turns: {chat.last_history_turns}")
     else:
         print("Type 'exit' to finish.")
         while True:
@@ -74,7 +102,14 @@ def main(argv=None):
                 break
             if not message.strip():
                 continue
-            print("LumoLM:", chat.ask(message))
+            try:
+                answer = chat.ask(message)
+            except ValueError as exc:
+                print(f"[input error] {exc}")
+                continue
+            print("LumoLM:", answer)
+            if args.show_context:
+                print(f"[diagnostic] retained prior turns: {chat.last_history_turns}")
 
 
 if __name__ == "__main__":
