@@ -183,16 +183,23 @@ ORDER = ("csv_to_json", "fibonacci", "factorial", "prime", "palindrome",
          "dedupe", "word_count", "text_stats", "sort", "json_file")
 
 FILE_NAME = re.compile(r"(?<![A-Za-z0-9_/.-])([A-Za-z][A-Za-z0-9_-]{0,60}\.py)\b")
-CODE_CUES = (
-    "code", "python", "script", "function", "program", "寫程式", "写代码",
-    "寫代碼", "写程序", "編寫", "编写", "寫一個", "写一个", "生成函數", "生成函数",
-    "/code", "寫個", "写个", "做個", "做个",
+WRITE_CUES = (
+    "write", "create", "generate", "build", "implement", "寫", "写",
+    "編寫", "编写", "生成", "製作", "制作", "做個", "做个",
+)
+CODE_TARGETS = (
+    "python", "script", "function", "program", "程式", "代码",
+    "代碼", "函数", "函數", "腳本", "脚本",
 )
 
 
 def is_code_request(text: str) -> bool:
-    lower = text.casefold()
-    return any(cue in lower for cue in CODE_CUES)
+    lower = text.casefold().strip()
+    if lower.startswith("/code "):
+        return True
+    if not any(cue in lower for cue in WRITE_CUES):
+        return False
+    return any(target in lower for target in CODE_TARGETS)
 
 
 def choose_recipe(request: str) -> str:
@@ -221,6 +228,10 @@ def generate_code(request: str) -> CodeDraft:
     recipe = choose_recipe(request)
     spec = RECIPES[recipe]
     name_match = FILE_NAME.search(request)
+    # Do not silently ignore a requested directory or traversal filename.
+    py_paths = re.findall(r"[^\\s\"']+\\.py\\b", request, re.I)
+    if py_paths and (not name_match or any("/" in p or "\\\\" in p or ".." in p for p in py_paths)):
+        raise ValueError("output filename must be a simple .py name, not a path")
     filename = name_match.group(1) if name_match else recipe + ".py"
     # Do not allow overrides to create a file outside the workspace.
     if len(filename) > 68 or Path(filename).name != filename:
