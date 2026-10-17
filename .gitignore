@@ -11,3 +11,6 @@ data/private/
 # Generated synthetic corpus (rebuild deterministically with scripts/build_corpus.py)
 data/expanded_train.txt
 data/expanded_val.txt
+
+# Public dataset samples generated locally; track provenance, not text blobs.
+data/tinystories_sample/

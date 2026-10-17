@@ -108,6 +108,34 @@ python -m lumolm.train --data /path/to/your-corpus.txt --checkpoint checkpoints/
 
 `--device auto` prefers CUDA, then Apple MPS, then CPU. For CPU training, start with a small model. Use `--grad-accum N` to accumulate gradients over N mini-batches. Output checkpoints are saved atomically at evaluation intervals and at the end; they include model, optimizer, training step, RNG state, model configuration, and corpus SHA-256. Checkpoints and private datasets are git-ignored. Load **only trusted** checkpoints.
 
+## Optional larger text source: TinyStories
+
+The bundled bilingual FAQ/math data is small, repetitive and intended for
+tests. For a genuine next-token language-model experiment, LumoLM has a
+**bounded** import path for the separately licensed
+[TinyStories dataset](https://huggingface.co/datasets/roneneldan/TinyStories).
+TinyStories is published under `cdla-sharing-1.0`; review the upstream terms
+and retain attribution before using or redistributing it. No TinyStories text
+or pretrained weights are committed to this repository.
+
+```bash
+python scripts/sample_tinystories.py --max-train-bytes 8388608 --max-val-bytes 524288
+python -m lumolm.train --data data/tinystories_sample/train.txt \
+  --val-data data/tinystories_sample/validation.txt \
+  --checkpoint checkpoints/story.pt --device auto \
+  --steps 3000 --batch-size 8 --block-size 128 \
+  --n-layer 2 --n-head 2 --n-embd 64 --eval-interval 500
+python -m lumolm.generate --checkpoint checkpoints/story.pt \
+  --prompt "Once upon a time" --max-new-tokens 120 --temperature 0.8
+```
+
+The sampler reads only a capped prefix of two **separate upstream splits**
+to avoid mixing training and validation text and writes `SOURCE.json` with
+download URLs, source/license details, sizes and SHA-256 hashes. The sampled
+files are git-ignored and are not redistributed by CI. GitHub Actions runs a
+small, explicitly limited story experiment to test this end-to-end path. It
+does not benchmark instruction following or create a competent assistant.
+
 ## Limitations / next steps
 
 - Byte-level GPT is easy to inspect but less efficient than a learned subword tokenizer for large-scale training. It may produce malformed UTF-8; inference decodes malformed sequences with replacement characters.
