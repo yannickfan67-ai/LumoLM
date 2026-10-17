@@ -229,7 +229,7 @@ def generate_code(request: str) -> CodeDraft:
     spec = RECIPES[recipe]
     name_match = FILE_NAME.search(request)
     # Do not silently ignore a requested directory or traversal filename.
-    py_paths = re.findall(r"[^\\s\"']+\\.py\\b", request, re.I)
+    py_paths = re.findall(r"[^\s,;：]+\.py\b", request, re.I)
     if py_paths and (not name_match or any("/" in p or "\\\\" in p or ".." in p for p in py_paths)):
         raise ValueError("output filename must be a simple .py name, not a path")
     filename = name_match.group(1) if name_match else recipe + ".py"
