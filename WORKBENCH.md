@@ -9,6 +9,50 @@ Models:
 
 Deterministic local tools, always marked "tool:", provide safe arithmetic, notes, file listing, file statistics, case-insensitive text search, and first-lines extractive preview. Tool answers do NOT demonstrate neural reasoning.
 
+## Automatic task routing and Python code generation (new)
+
+Natural language is now routed to a small, auditable task controller. Examples:
+
+    You: 幫我寫一個 Python 斐波那契函數，保存為 fib.py
+    [action:route] code
+    [action:generate] audited template fibonacci, not a neural code model
+    [action:static-check] Python AST valid
+    [action:save] new workspace file fib.py (not executed)
+
+    You: 計算 (12+7)*3
+    [tool:calculator] 57
+
+    You: 記下 我需要測試 LumoLM
+    [tool:notes] saved note #1
+
+    You: 檢查 Python fib.py
+    [tool:syntax-check] {"valid":true,...}
+
+    You: /trace
+
+The controller supports English, Traditional and Simplified Chinese cues for
+known tasks and exposes its routing decisions through visible `action:`
+messages (JSON API responses include a `trace` array). `/trace` shows
+the most recent routing steps. Use `--no-trace` to suppress progress lines
+without affecting execution.
+
+**Code generation is limited and deterministic**: the supported Python
+recipes are Fibonacci, factorial, prime check, palindrome, ordered
+deduplication, numeric sort, word count, line statistics, JSON reader, and
+CSV-to-JSON converter. It is not a trained neural coding assistant and cannot
+understand arbitrary requirements. The source is always labeled
+`template:python`. New generated files are saved only inside the
+`--workspace`, checked via Python AST without execution, and never
+overwrite existing files. `/check script.py` performs syntax inspection
+without importing or executing the script. Unknown coding tasks are explicitly
+refused; no invented code or external shell calls.
+
+Other auto-routed intents include calculation, story continuation, notes and
+file statistics/search. All tool results remain clearly distinguished from
+experimental neural outputs. A neural addition result can be explicitly
+requested via `/add 3+3` for comparison; reliable normal arithmetic goes
+to `tool:calculator`.
+
 ## Start
 
 From this repository or integrated ZIP:
