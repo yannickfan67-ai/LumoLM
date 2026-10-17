@@ -15,6 +15,8 @@ PROMPTS = (
     "Question: Do you know Minecraft?\nAnswer:",
     "Question: What is 2+2?\nAnswer:",
     "Question: 你好嗎？\nAnswer:",
+    "Question: What is 7+5?\nAnswer:",  # unseen arithmetic, no claimed correctness
+    "Question: 你知道現在的日期嗎？\nAnswer:",  # unseen, no clock
 )
 
 
