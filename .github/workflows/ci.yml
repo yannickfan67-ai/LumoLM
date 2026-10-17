@@ -28,13 +28,12 @@ jobs:
         env:
           OMP_NUM_THREADS: "2"
         run: |
-          python -m lumolm.train --data data/dialogue_demo.txt --checkpoint checkpoints/probe.pt --device cpu --steps 1000 --batch-size 8 --block-size 128 --n-layer 2 --n-head 2 --n-embd 64 --lr 0.001 --eval-interval 500 --eval-iters 4
+          python -m lumolm.train --data data/dialogue_demo.txt --checkpoint checkpoints/probe.pt --device cpu --steps 1600 --batch-size 8 --block-size 128 --n-layer 2 --n-head 2 --n-embd 64 --lr 0.001 --eval-interval 800 --eval-iters 4
       - name: Speak with the trained diagnostic model
         run: PYTHONPATH=. python scripts/probe_chat.py --checkpoint checkpoints/probe.pt --max-new-tokens 60 --device cpu
       - name: Speak using interactive chat adapter
         run: |
-          python -m lumolm.chat --checkpoint checkpoints/probe.pt --question 'What is LumoLM?' --device cpu --max-new-tokens 90
-          python -m lumolm.chat --checkpoint checkpoints/probe.pt --question '你好嗎？' --device cpu --max-new-tokens 90
+          python -m lumolm.chat --checkpoint checkpoints/probe.pt --question 'What is LumoLM?' --question 'What is 2+2?' --question '你好嗎？' --device cpu --max-new-tokens 90
       - name: Upload demonstration dialogue checkpoint
         uses: actions/upload-artifact@v4
         with:
