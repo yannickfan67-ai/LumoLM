@@ -1,6 +1,7 @@
 """Train LumoLM from a UTF-8 text file; supports resumable checkpoints."""
 import argparse
 import hashlib
+import math
 import os
 import tempfile
 from dataclasses import asdict
@@ -26,6 +27,14 @@ def parse_args(argv=None):
     p.add_argument("--n-embd", type=int, default=128)
     p.add_argument("--dropout", type=float, default=0.0)
     p.add_argument("--lr", type=float, default=3e-4)
+    p.add_argument("--min-lr", type=float, default=None,
+                   help="minimum learning rate for cosine decay; omit for fixed LR")
+    p.add_argument("--warmup-steps", type=int, default=0,
+                   help="linear warmup steps when using cosine LR")
+    p.add_argument("--best-checkpoint", type=Path,
+                   help="optionally save best validation-loss weights here")
+    p.add_argument("--threads", type=int, default=0,
+                   help="CPU intra-op threads; 0 retains PyTorch default")
     p.add_argument("--grad-accum", type=int, default=1)
     p.add_argument("--eval-interval", type=int, default=100)
     p.add_argument("--eval-iters", type=int, default=10)
@@ -80,13 +89,14 @@ def estimate_loss(model, train_data, val_data, batch_size, block_size, device, i
 
 
 def save_checkpoint(path: Path, model: GPT, optimizer, step: int, digest: str,
-                    validation_digest: str | None = None):
+                    validation_digest: str | None = None, best_val_loss: float | None = None):
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "format_version": 1, "config": asdict(model.config),
         "model": model.state_dict(), "optimizer": optimizer.state_dict(),
         "step": step, "corpus_sha256": digest,
         "validation_sha256": validation_digest,
+        "best_val_loss": best_val_loss,
         "rng_state": torch.get_rng_state(),
     }
     fd, name = tempfile.mkstemp(prefix=".lumolm-", suffix=".tmp", dir=path.parent)
@@ -104,6 +114,16 @@ def train(argv=None):
     for key in ("steps", "batch_size", "grad_accum", "eval_interval", "eval_iters"):
         if getattr(args, key) <= 0:
             raise ValueError(f"--{key.replace('_', '-')} must be positive")
+    if args.threads < 0 or args.warmup_steps < 0:
+        raise ValueError("--threads and --warmup-steps must be nonnegative")
+    if args.threads:
+        torch.set_num_threads(args.threads)
+    if args.min_lr is not None and not 0 < args.min_lr <= args.lr:
+        raise ValueError("--min-lr must be positive and no greater than --lr")
+    if args.warmup_steps > args.steps:
+        raise ValueError("--warmup-steps cannot exceed --steps")
+    if args.best_checkpoint and args.best_checkpoint.resolve() == args.checkpoint.resolve():
+        raise ValueError("--best-checkpoint must not equal the last checkpoint")
     torch.manual_seed(args.seed)
     device = choose_device(args.device)
     raw = args.data.read_bytes()
@@ -135,15 +155,33 @@ def train(argv=None):
     model = GPT(cfg).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
     start = 0
+    best_val = float("inf")
     if saved:
         model.load_state_dict(saved["model"])
         optimizer.load_state_dict(saved["optimizer"])
         torch.set_rng_state(saved["rng_state"])
         start = int(saved["step"])
+        # The last checkpoint continues AdamW updates; validation-based
+        # best model selection is tracked independently.
+        if args.best_checkpoint and args.best_checkpoint.exists():
+            best_saved = torch.load(args.best_checkpoint, map_location="cpu", weights_only=True)
+            if (best_saved.get("corpus_sha256") != digest
+                    or best_saved.get("validation_sha256") != validation_digest):
+                raise ValueError("best checkpoint corpus fingerprint differs")
+            best_val = float(best_saved.get("best_val_loss", "inf"))
     params = sum(p.numel() for p in model.parameters())
     print(f"LumoLM: {params:,} parameters | device={device} | bytes={len(raw)} | step={start}", flush=True)
     model.train()
     for step in range(start + 1, args.steps + 1):
+        if args.min_lr is not None:
+            if args.warmup_steps and step <= args.warmup_steps:
+                current_lr = args.lr * step / args.warmup_steps
+            else:
+                remaining = max(1, args.steps - args.warmup_steps)
+                progress = max(0.0, min(1.0, (step - args.warmup_steps) / remaining))
+                current_lr = args.min_lr + 0.5 * (args.lr - args.min_lr) * (1 + math.cos(math.pi * progress))
+            for group in optimizer.param_groups:
+                group["lr"] = current_lr
         optimizer.zero_grad(set_to_none=True)
         train_loss = 0.0
         for _ in range(args.grad_accum):
@@ -158,7 +196,17 @@ def train(argv=None):
                 model, train_data, val_data, args.batch_size,
                 cfg.block_size, device, args.eval_iters,
             )
-            print(f"step={step} batch_loss={train_loss:.4f} train={train_eval:.4f} val={val_eval:.4f}", flush=True)
+            lr_used = optimizer.param_groups[0]["lr"]
+            print(f"step={step} lr={lr_used:.7f} batch_loss={train_loss:.4f} "
+                  f"train={train_eval:.4f} val={val_eval:.4f}", flush=True)
+            if args.best_checkpoint and val_eval < best_val:
+                best_val = val_eval
+                save_checkpoint(args.best_checkpoint, model, optimizer, step, digest,
+                                validation_digest, best_val)
+                # This scalar is a convenience for audit logs. Recording it
+                # after atomic checkpoint creation does not change weights.
+                print(f"best_validation step={step} val={best_val:.4f} "
+                      f"checkpoint={args.best_checkpoint}", flush=True)
             save_checkpoint(args.checkpoint, model, optimizer, step, digest,
                             validation_digest)
     if start >= args.steps:

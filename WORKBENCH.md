@@ -90,3 +90,14 @@ The /stats, /summary and /find tools access only relative text files inside --wo
 ## Limitations
 
 There is NO Lumo-270M checkpoint in this bundle. These are three small experimental networks, not a single jointly-trained multitask language model. Free chat and story outputs may be incorrect. /summary is a deterministic first-lines preview, NOT genuine neural summarization. No capability for subtraction or multiplication has been taught to the addition model; the calculator handles those operations separately.
+
+### More training data and research checkpoints
+
+A separate experimental workflow trains a new, bigger English
+story-continuation model on 16 MiB of TinyStories for 12,000 steps,
+and a small Python syntax-completion model on 3 MB of procedurally
+generated original examples for 8,000 steps. The models are separately
+tagged and evaluated; neither can be silently merged into the
+existing general Workbench weight files. Run them explicitly through
+`python -m lumolm.generate --checkpoint <file> --prompt "def "`.
+See README for data provenance, validation and limitations.

@@ -14,3 +14,6 @@ data/expanded_val.txt
 
 # Public dataset samples generated locally; track provenance, not text blobs.
 data/tinystories_sample/
+
+# Generated synthetic Python completion corpus, never committed
+data/code_generated/
