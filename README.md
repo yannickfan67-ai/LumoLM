@@ -121,6 +121,42 @@ checkpoint is a from-scratch ~0.36M-parameter experiment, **not Lumo-270M**.
 Training data/validation hashes are recorded to prevent accidental resume
 on changed source content. Generated datasets and checkpoints are ignored by Git.
 
+## Learned two-digit arithmetic (separate research checkpoint)
+
+The 372K-parameter bilingual FAQ toy often answered \`1+1\` with \`11\` and
+\`3+3\` with \`40\`. It never learned reliable arithmetic. A separate
+experiment trains the **same LumoLM causal Transformer architecture** from
+scratch on explicitly formatted addition examples. Both input operands and
+the three-digit answer are written **least-significant digit first** so the
+model can learn one column and carry at a time. This is a reversible text
+representation, **not** a hardcoded Python calculator or answer lookup.
+
+All ordered pairs of inputs 0..99 are generated deterministically. A held-out
+set is selected by *unordered* pairs so \`8+3\` can never leak through \`3+8\`.
+The model predicts output bytes and only the answer bytes receive training
+loss. A complete checkpoint evaluation tests every held-out pair. For
+reproducibility we gate the GitHub Actions experiment on 95%+ exact matching.
+
+\`\`\`bash
+# Requires Python >=3.10 and PyTorch; trains from scratch, CPU compatible.
+python -m lumolm.addition --train --device cpu --steps 6000 \
+  --checkpoint checkpoints/addition.pt
+# Ask the ACTUAL trained arithmetic neural network (not the generic chat model):
+python -m lumolm.addition --checkpoint checkpoints/addition.pt \
+  --question "1+1" --question "3+3" --question "17+28"
+# Evaluate train pairs and ALL held-out pairs:
+python -m lumolm.addition --checkpoint checkpoints/addition.pt --evaluate
+\`\`\`
+
+**Scope:** this specialised learned model only accepts nonnegative
+**two-digit addition** (operands 0..99). It does not support subtraction,
+multiplication, unknown variables, free-form chat, numbers above 99, or
+open-ended mathematics. Its weights are **not interchangeable** with
+\`probe.pt\` or \`story.pt\` and are clearly tagged with their task.
+Results from the arithmetic experiment must not be presented as improved
+general chat or generalized arithmetic outside the measured domain.
+
+
 ## Train your own model
 
 Use a sufficiently large, UTF-8 **plain text** corpus you have permission to use. By default, training/validation are split contiguously (last 10% used for validation). To avoid data leakage, prefer **a separate held-out validation corpus** using `--val-data` and ensure examples/topics do not overlap. Do not add secrets or private data to your corpus. Example:

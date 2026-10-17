@@ -1,0 +1,57 @@
+name: Learned addition experiment
+on:
+  pull_request:
+    paths:
+      - "lumolm/addition.py"
+      - "tests/test_addition.py"
+      - ".github/workflows/addition.yml"
+  workflow_dispatch:
+jobs:
+  train-and-evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      OMP_NUM_THREADS: "2"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install PyTorch CPU and pytest
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install pytest
+      - name: Check addition dataset, prompt masking, and gradient flow
+        run: python -m pytest -q tests/test_addition.py
+      - name: Train a tiny actual LumoLM GPT for two-digit addition
+        run: |
+          python -m lumolm.addition --train --device cpu --steps 6000 --batch-size 128 --eval-interval 1000 --checkpoint checkpoints/addition.pt --eval-sample 0 | tee addition-training.log
+      - name: Evaluate from saved checkpoint (no symbolic inference)
+        run: |
+          python -m lumolm.addition --evaluate --device cpu --checkpoint checkpoints/addition.pt --eval-sample 0 | tee addition-eval.log
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data = [json.loads(s.split("EVAL=", 1)[1]) for s in Path("addition-eval.log").read_text().splitlines() if s.startswith("EVAL=")]
+          results = {r["split"]:r for r in data}
+          hold = results["heldout_pairs"]
+          print(f"Held-out operand accuracy: {hold['correct']}/{hold['total']}")
+          if hold["accuracy"] < 0.95:
+              raise SystemExit("Model failed explicit >=95% held-out addition accuracy gate")
+          PY
+      - name: Ask examples that failed in earlier chat
+        run: |
+          python -m lumolm.addition --checkpoint checkpoints/addition.pt --question "1+1" --question "3+3" --question "4+4" --question "5+5" --question "17+28" --question "56+87"
+      - name: Upload actual learned addition checkpoint and logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: lumolm-learned-addition-6000
+          path: |
+            checkpoints/addition.pt
+            addition-eval.log
+            addition-training.log
+          if-no-files-found: error
+          retention-days: 14
