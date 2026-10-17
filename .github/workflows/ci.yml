@@ -30,4 +30,4 @@ jobs:
         run: |
           python -m lumolm.train --data data/demo.txt --checkpoint checkpoints/probe.pt --device cpu --steps 400 --batch-size 8 --block-size 96 --n-layer 2 --n-head 2 --n-embd 64 --lr 0.001 --eval-interval 200 --eval-iters 4
       - name: Speak with the trained diagnostic model
-        run: python scripts/probe_chat.py --checkpoint checkpoints/probe.pt --max-new-tokens 60 --device cpu
+        run: PYTHONPATH=. python scripts/probe_chat.py --checkpoint checkpoints/probe.pt --max-new-tokens 60 --device cpu
