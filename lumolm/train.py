@@ -10,6 +10,7 @@ import torch
 from torch.nn import functional as F
 
 from .model import GPT, GPTConfig
+from .qa import parse_qa_records, qa_batch
 
 
 def parse_args(argv=None):
@@ -18,6 +19,8 @@ def parse_args(argv=None):
     p.add_argument("--val-data", type=Path, help="optional separate, held-out UTF-8 validation corpus")
     p.add_argument("--checkpoint", type=Path, default=Path("checkpoints/lumolm.pt"))
     p.add_argument("--resume", action="store_true")
+    p.add_argument("--task", choices=("language_model", "qa"), default="language_model",
+                   help="standard next-byte LM or answer-only Question/Answer supervision")
     p.add_argument("--steps", type=int, default=1000, help="total optimizer steps, including resumed steps")
     p.add_argument("--batch-size", type=int, default=16)
     p.add_argument("--block-size", type=int, default=128)
@@ -65,13 +68,14 @@ def batch(data: torch.Tensor, batch_size: int, block_size: int, device: str):
 
 
 @torch.no_grad()
-def estimate_loss(model, train_data, val_data, batch_size, block_size, device, iters):
+def estimate_loss(model, train_data, val_data, batch_size, block_size, device, iters,
+                  batch_fn=batch):
     model.eval()
     losses = []
     for data in (train_data, val_data):
         values = []
         for _ in range(iters):
-            x, y = batch(data, batch_size, block_size, device)
+            x, y = batch_fn(data, batch_size, block_size, device)
             _, loss = model(x, y)
             values.append(float(loss.item()))
         losses.append(sum(values) / len(values))
@@ -80,13 +84,15 @@ def estimate_loss(model, train_data, val_data, batch_size, block_size, device, i
 
 
 def save_checkpoint(path: Path, model: GPT, optimizer, step: int, digest: str,
-                    validation_digest: str | None = None):
+                    validation_digest: str | None = None,
+                    task: str = "language_model"):
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "format_version": 1, "config": asdict(model.config),
         "model": model.state_dict(), "optimizer": optimizer.state_dict(),
         "step": step, "corpus_sha256": digest,
         "validation_sha256": validation_digest,
+        "task": task,
         "rng_state": torch.get_rng_state(),
     }
     fd, name = tempfile.mkstemp(prefix=".lumolm-", suffix=".tmp", dir=path.parent)
@@ -105,6 +111,8 @@ def train(argv=None):
         if getattr(args, key) <= 0:
             raise ValueError(f"--{key.replace('_', '-')} must be positive")
     torch.manual_seed(args.seed)
+    if args.task == "qa" and args.val_data is None:
+        raise ValueError("--task qa requires a separate --val-data corpus")
     device = choose_device(args.device)
     raw = args.data.read_bytes()
     digest = hashlib.sha256(raw).hexdigest()
@@ -118,20 +126,30 @@ def train(argv=None):
             raise ValueError("resume corpus differs from the original training corpus")
         if saved.get("validation_sha256") != validation_digest:
             raise ValueError("resume validation corpus differs from the original")
+        if saved.get("task", "language_model") != args.task:
+            raise ValueError("resume task differs from the checkpoint")
         if saved["format_version"] != 1:
             raise ValueError("unsupported checkpoint format")
         cfg = GPTConfig(**saved["config"])
     else:
         cfg = GPTConfig(block_size=args.block_size, n_layer=args.n_layer,
                         n_head=args.n_head, n_embd=args.n_embd, dropout=args.dropout)
-    if validation_raw is None:
+    if args.task == "qa":
+        train_data, train_skipped = parse_qa_records(raw, cfg.block_size)
+        val_data, val_skipped = parse_qa_records(validation_raw, cfg.block_size)
+        batch_fn = qa_batch
+        print(f"qa train_examples={len(train_data)} train_skipped={train_skipped} "
+              f"val_examples={len(val_data)} val_skipped={val_skipped}", flush=True)
+    elif validation_raw is None:
         train_data, val_data = split_corpus(raw, cfg.block_size)
+        batch_fn = batch
     else:
         minimum = cfg.block_size + 2
         if len(raw) < minimum or len(validation_raw) < minimum:
             raise ValueError(f"both corpora must contain at least {minimum} bytes")
         train_data = torch.tensor(list(raw), dtype=torch.long)
         val_data = torch.tensor(list(validation_raw), dtype=torch.long)
+        batch_fn = batch
     model = GPT(cfg).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
     start = 0
@@ -147,7 +165,7 @@ def train(argv=None):
         optimizer.zero_grad(set_to_none=True)
         train_loss = 0.0
         for _ in range(args.grad_accum):
-            x, y = batch(train_data, args.batch_size, cfg.block_size, device)
+            x, y = batch_fn(train_data, args.batch_size, cfg.block_size, device)
             _, loss = model(x, y)
             train_loss += loss.detach().item() / args.grad_accum
             (loss / args.grad_accum).backward()
@@ -156,11 +174,11 @@ def train(argv=None):
         if step % args.eval_interval == 0 or step == args.steps:
             train_eval, val_eval = estimate_loss(
                 model, train_data, val_data, args.batch_size,
-                cfg.block_size, device, args.eval_iters,
+                cfg.block_size, device, args.eval_iters, batch_fn,
             )
             print(f"step={step} batch_loss={train_loss:.4f} train={train_eval:.4f} val={val_eval:.4f}", flush=True)
             save_checkpoint(args.checkpoint, model, optimizer, step, digest,
-                            validation_digest)
+                            validation_digest, args.task)
     if start >= args.steps:
         print("checkpoint already reached requested --steps; no additional training", flush=True)
     return args.checkpoint
