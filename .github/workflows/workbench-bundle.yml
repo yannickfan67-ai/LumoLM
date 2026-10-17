@@ -1,0 +1,116 @@
+name: Unified Workbench bundle
+on:
+  pull_request:
+    paths:
+      - "lumolm/workbench.py"
+      - "lumolm_workbench.py"
+      - "tests/test_workbench.py"
+      - ".github/workflows/workbench-bundle.yml"
+      - "WORKBENCH.md"
+  workflow_dispatch:
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    env:
+      OMP_NUM_THREADS: "2"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install pytest
+      - name: Test workbench and dependencies
+        run: python -m pytest -q tests/test_workbench.py
+      - name: Download previously trained synthetic FAQ model
+        uses: actions/download-artifact@v4
+        with:
+          name: lumolm-expanded-synthetic-checkpoint
+          repository: ${{ github.repository }}
+          run-id: 39003541004
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: staging/chat
+      - name: Download previously trained story model
+        uses: actions/download-artifact@v4
+        with:
+          name: lumolm-tinystories-sample-checkpoint
+          repository: ${{ github.repository }}
+          run-id: 39004515105
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: staging/story
+      - name: Download previously trained learned-addition model
+        uses: actions/download-artifact@v4
+        with:
+          name: lumolm-learned-addition-6000
+          repository: ${{ github.repository }}
+          run-id: 39005688703
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: staging/addition
+      - name: Assemble one runnable folder with three distinct checkpoints
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json, shutil, zipfile
+          import torch
+          root = Path("LumoLM-Workbench")
+          (root / "checkpoints").mkdir(parents=True, exist_ok=True)
+          shutil.copytree("lumolm", root / "lumolm",
+                          ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+          for name in ("lumolm_workbench.py", "requirements.txt", "README.md",
+                       "WORKBENCH.md"):
+              shutil.copy2(name, root / name)
+          manifest = {"models": {}, "notice":
+             "Three independently trained small models; not an averaged/joint model.",
+             "source_runs": {"chat":39003541004, "story":39004515105,
+                             "addition":39005688703}}
+          for role, src, filename in [
+              ("chat", "staging/chat", "probe.pt"),
+              ("story", "staging/story", "story.pt"),
+              ("addition", "staging/addition", "addition.pt")]:
+              found = list(Path(src).rglob(filename))
+              assert len(found) == 1, (role, found)
+              checkpoint = root / "checkpoints" / filename
+              shutil.copy2(found[0], checkpoint)
+              state = torch.load(checkpoint, map_location="cpu", weights_only=True)
+              assert state["format_version"] == 1
+              assert "config" in state and "model" in state
+              if role == "addition":
+                  assert state.get("task") == "reversed_two_digit_addition_v1"
+              manifest["models"][role] = {
+                  "path": str(checkpoint.relative_to(root)),
+                  "parameters_in_state": sum(x.numel() for x in state["model"].values()
+                                             if isinstance(x,torch.Tensor)),
+                  "training_steps": state.get("step"),
+              }
+          prov = list(Path("staging/story").rglob("SOURCE.json"))
+          if prov:
+              shutil.copy2(prov[0], root / "TINY_STORIES_SOURCE.json")
+          (root / "MODEL_MANIFEST.json").write_text(
+              json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+          zipfile.ZipFile("LumoLM-Workbench-Integrated.zip", "w",
+                          compression=zipfile.ZIP_DEFLATED).close()
+          with zipfile.ZipFile("LumoLM-Workbench-Integrated.zip", "a",
+                               compression=zipfile.ZIP_DEFLATED) as z:
+              for f in root.rglob("*"):
+                  if f.is_file():
+                      z.write(f, f.as_posix())
+          print(json.dumps(manifest, indent=2))
+          PY
+      - name: Smoke-test all three real model checkpoints and local tools
+        run: |
+          cd LumoLM-Workbench
+          python lumolm_workbench.py --device cpu --threads 2 --message "/models" --message "3+3" --message "/calc 3+3" --message "3*3" --message "/story Once upon a time" --message "/chat What is LumoLM?" --json
+          python lumolm_workbench.py --device cpu --threads 2 --message "/notes add testing notes" --message "/notes list" --json
+      - name: Upload complete offline Workbench package
+        uses: actions/upload-artifact@v4
+        with:
+          name: lumolm-workbench-complete
+          path: LumoLM-Workbench-Integrated.zip
+          if-no-files-found: error
+          retention-days: 14
