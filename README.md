@@ -64,7 +64,7 @@ probes run `PYTHONPATH=. python scripts/probe_chat.py --checkpoint checkpoints/d
 ## Expanded corpus and real evaluation
 
 The earlier small dialogue test set contains only about 18 KB of repeated
-examples. The new **deterministic, original/synthetic** dataset generator covers
+examples. The new **deterministic, original/synthetic** and category-balanced dataset generator covers
 English and Traditional Chinese, basic computer knowledge, Minecraft,
 greetings and arithmetic (addition, subtraction and multiplication). It writes
 independent training and validation files. **Arithmetic operand pairs are held
@@ -76,7 +76,7 @@ language-understanding benchmark.
 ```bash
 python scripts/build_corpus.py
 python -m lumolm.train --data data/expanded_train.txt --val-data data/expanded_val.txt \
-  --checkpoint checkpoints/expanded.pt --device auto --steps 2400 \
+  --checkpoint checkpoints/expanded.pt --device auto --steps 6000 \
   --batch-size 8 --block-size 128 --n-layer 3 --n-head 4 --n-embd 96 \
   --lr 0.0007 --eval-interval 1200 --eval-iters 8
 PYTHONPATH=. python scripts/evaluate_math.py --checkpoint checkpoints/expanded.pt \
