@@ -242,6 +242,7 @@ def generate_code(request: str) -> CodeDraft:
         '"""\n\n'
         + spec["body"].rstrip() + "\n\n"
         + 'if __name__ == "__main__":\n'
+        + ("    pass\n" if spec["example"].lstrip().startswith("#") else "")
         + "    " + spec["example"] + "\n"
     )
     # Validate syntax without executing user-facing generated code.
