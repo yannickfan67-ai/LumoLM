@@ -61,9 +61,40 @@ CI intentionally probes questions absent from that dataset too.
 The terminal interface cannot make it knowledgeable or reliable. For reproducible
 probes run `PYTHONPATH=. python scripts/probe_chat.py --checkpoint checkpoints/demo.pt`.
 
+## Expanded corpus and real evaluation
+
+The earlier small dialogue test set contains only about 18 KB of repeated
+examples. The new **deterministic, original/synthetic** dataset generator covers
+English and Traditional Chinese, basic computer knowledge, Minecraft,
+greetings and arithmetic (addition, subtraction and multiplication). It writes
+independent training and validation files. **Arithmetic operand pairs are held
+out by group** (including synonymous phrasings and equivalent operand order),
+so the held-out score is more meaningful than testing solely memorized
+training phrases. It is still a narrow synthetic evaluation, not a general
+language-understanding benchmark.
+
+```bash
+python scripts/build_corpus.py
+python -m lumolm.train --data data/expanded_train.txt --val-data data/expanded_val.txt \
+  --checkpoint checkpoints/expanded.pt --device auto --steps 2400 \
+  --batch-size 8 --block-size 128 --n-layer 3 --n-head 4 --n-embd 96 \
+  --lr 0.0007 --eval-interval 1200 --eval-iters 8
+PYTHONPATH=. python scripts/evaluate_math.py --checkpoint checkpoints/expanded.pt \
+  --train data/expanded_train.txt --val data/expanded_val.txt --samples 24
+python -m lumolm.chat --checkpoint checkpoints/expanded.pt --device auto
+```
+
+The evaluation prints **actual** model completions, exact-match accuracy on
+seen synthetic arithmetic, unseen operand combinations, and out-of-domain
+questions. Low or zero accuracy is a real limitation, not a test failure.
+Do not claim the model can reason merely because training loss falls. The
+checkpoint is a from-scratch ~0.36M-parameter experiment, **not Lumo-270M**.
+Training data/validation hashes are recorded to prevent accidental resume
+on changed source content. Generated datasets and checkpoints are ignored by Git.
+
 ## Train your own model
 
-Use a sufficiently large, UTF-8 **plain text** corpus you have permission to use. Train/validation are split contiguously (last 10% used for validation; at least `block_size + 2` bytes on either side). Do not add secrets or private data to your corpus. Example:
+Use a sufficiently large, UTF-8 **plain text** corpus you have permission to use. By default, training/validation are split contiguously (last 10% used for validation). To avoid data leakage, prefer **a separate held-out validation corpus** using `--val-data` and ensure examples/topics do not overlap. Do not add secrets or private data to your corpus. Example:
 
 ```bash
 python -m lumolm.train --data /path/to/your-corpus.txt --checkpoint checkpoints/experiment.pt --device auto --steps 10000 --batch-size 16 --block-size 128 --n-layer 4 --n-head 4 --n-embd 128 --eval-interval 500 --eval-iters 20
