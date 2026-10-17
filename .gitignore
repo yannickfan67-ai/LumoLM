@@ -7,3 +7,7 @@ __pycache__/
 checkpoints/
 outputs/
 data/private/
+
+# Generated synthetic corpus (rebuild deterministically with scripts/build_corpus.py)
+data/expanded_train.txt
+data/expanded_val.txt

@@ -15,6 +15,7 @@ from .model import GPT, GPTConfig
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--data", type=Path, required=True, help="UTF-8 corpus (not bundled into checkpoint)")
+    p.add_argument("--val-data", type=Path, help="optional separate, held-out UTF-8 validation corpus")
     p.add_argument("--checkpoint", type=Path, default=Path("checkpoints/lumolm.pt"))
     p.add_argument("--resume", action="store_true")
     p.add_argument("--steps", type=int, default=1000, help="total optimizer steps, including resumed steps")
@@ -78,12 +79,14 @@ def estimate_loss(model, train_data, val_data, batch_size, block_size, device, i
     return losses
 
 
-def save_checkpoint(path: Path, model: GPT, optimizer, step: int, digest: str):
+def save_checkpoint(path: Path, model: GPT, optimizer, step: int, digest: str,
+                    validation_digest: str | None = None):
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "format_version": 1, "config": asdict(model.config),
         "model": model.state_dict(), "optimizer": optimizer.state_dict(),
         "step": step, "corpus_sha256": digest,
+        "validation_sha256": validation_digest,
         "rng_state": torch.get_rng_state(),
     }
     fd, name = tempfile.mkstemp(prefix=".lumolm-", suffix=".tmp", dir=path.parent)
@@ -105,18 +108,30 @@ def train(argv=None):
     device = choose_device(args.device)
     raw = args.data.read_bytes()
     digest = hashlib.sha256(raw).hexdigest()
+    validation_raw = args.val_data.read_bytes() if args.val_data is not None else None
+    validation_digest = (hashlib.sha256(validation_raw).hexdigest()
+                         if validation_raw is not None else None)
     saved = None
     if args.resume:
         saved = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
         if saved["corpus_sha256"] != digest:
             raise ValueError("resume corpus differs from the original training corpus")
+        if saved.get("validation_sha256") != validation_digest:
+            raise ValueError("resume validation corpus differs from the original")
         if saved["format_version"] != 1:
             raise ValueError("unsupported checkpoint format")
         cfg = GPTConfig(**saved["config"])
     else:
         cfg = GPTConfig(block_size=args.block_size, n_layer=args.n_layer,
                         n_head=args.n_head, n_embd=args.n_embd, dropout=args.dropout)
-    train_data, val_data = split_corpus(raw, cfg.block_size)
+    if validation_raw is None:
+        train_data, val_data = split_corpus(raw, cfg.block_size)
+    else:
+        minimum = cfg.block_size + 2
+        if len(raw) < minimum or len(validation_raw) < minimum:
+            raise ValueError(f"both corpora must contain at least {minimum} bytes")
+        train_data = torch.tensor(list(raw), dtype=torch.long)
+        val_data = torch.tensor(list(validation_raw), dtype=torch.long)
     model = GPT(cfg).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
     start = 0
@@ -144,7 +159,8 @@ def train(argv=None):
                 cfg.block_size, device, args.eval_iters,
             )
             print(f"step={step} batch_loss={train_loss:.4f} train={train_eval:.4f} val={val_eval:.4f}", flush=True)
-            save_checkpoint(args.checkpoint, model, optimizer, step, digest)
+            save_checkpoint(args.checkpoint, model, optimizer, step, digest,
+                            validation_digest)
     if start >= args.steps:
         print("checkpoint already reached requested --steps; no additional training", flush=True)
     return args.checkpoint

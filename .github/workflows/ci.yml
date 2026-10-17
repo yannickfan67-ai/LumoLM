@@ -24,3 +24,27 @@ jobs:
           python -m lumolm.train --data data/demo.txt --checkpoint checkpoints/demo.pt --device cpu --steps 2 --batch-size 2 --block-size 16 --n-layer 1 --n-head 2 --n-embd 32 --eval-iters 1 --eval-interval 1
       - name: Run inference
         run: python -m lumolm.generate --checkpoint checkpoints/demo.pt --prompt 'Hello' --max-new-tokens 12 --device cpu --temperature 0
+      - name: Generate expanded synthetic bilingual corpus
+        run: python scripts/build_corpus.py
+      - name: Train medium-sized conversation diagnostic model (not pretrained)
+        env:
+          OMP_NUM_THREADS: "2"
+        run: |
+          python -m lumolm.train --data data/expanded_train.txt --val-data data/expanded_val.txt --checkpoint checkpoints/probe.pt --device cpu --steps 6000 --batch-size 8 --block-size 128 --n-layer 3 --n-head 4 --n-embd 96 --lr 0.0007 --eval-interval 3000 --eval-iters 8
+      - name: Measure seen, unseen and out-of-domain answers
+        env:
+          OMP_NUM_THREADS: "2"
+        run: |
+          PYTHONPATH=. python scripts/evaluate_math.py --checkpoint checkpoints/probe.pt --train data/expanded_train.txt --val data/expanded_val.txt --samples 24 --device cpu
+      - name: Speak with the trained diagnostic model
+        run: PYTHONPATH=. python scripts/probe_chat.py --checkpoint checkpoints/probe.pt --max-new-tokens 60 --device cpu
+      - name: Speak using interactive chat adapter
+        run: |
+          python -m lumolm.chat --checkpoint checkpoints/probe.pt --question 'What is LumoLM?' --question 'What is 2+2?' --question '你好嗎？' --device cpu --max-new-tokens 90
+      - name: Upload demonstration dialogue checkpoint
+        uses: actions/upload-artifact@v4
+        with:
+          name: lumolm-expanded-synthetic-checkpoint
+          path: checkpoints/probe.pt
+          if-no-files-found: error
+          retention-days: 7

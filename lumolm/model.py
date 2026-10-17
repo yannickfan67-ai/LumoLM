@@ -35,19 +35,27 @@ class Attention(nn.Module):
         self.proj = nn.Linear(cfg.n_embd, cfg.n_embd)
         self.resid_dropout = nn.Dropout(cfg.dropout)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, past_key_value=None, use_cache: bool = False):
         b, t, c = x.shape
         q, k, v = self.qkv(x).split(c, dim=-1)
         q = q.reshape(b, t, self.n_head, c // self.n_head).transpose(1, 2)
         k = k.reshape(b, t, self.n_head, c // self.n_head).transpose(1, 2)
         v = v.reshape(b, t, self.n_head, c // self.n_head).transpose(1, 2)
+        if past_key_value is not None:
+            if t != 1:
+                raise ValueError("cached attention accepts exactly one new token")
+            old_k, old_v = past_key_value
+            k = torch.cat((old_k, k), dim=-2)
+            v = torch.cat((old_v, v), dim=-2)
+        # A single query with preceding cached keys must attend to every key.
+        # is_causal=True for a (1, T) attention matrix would mask all but key 0.
         y = F.scaled_dot_product_attention(
-            q, k, v, is_causal=True,
+            q, k, v, is_causal=past_key_value is None,
             dropout_p=self.dropout if self.training else 0.0,
         )
         y = y.transpose(1, 2).contiguous().reshape(b, t, c)
-        return self.resid_dropout(self.proj(y))
-
+        y = self.resid_dropout(self.proj(y))
+        return (y, (k, v)) if use_cache else y
 
 class Block(nn.Module):
     def __init__(self, cfg: GPTConfig):
@@ -62,10 +70,15 @@ class Block(nn.Module):
             nn.Dropout(cfg.dropout),
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x + self.attn(self.ln1(x))
-        return x + self.mlp(self.ln2(x))
-
+    def forward(self, x: torch.Tensor, past_key_value=None, use_cache: bool = False):
+        attn_result = self.attn(self.ln1(x), past_key_value, use_cache)
+        if use_cache:
+            attn_output, present = attn_result
+        else:
+            attn_output = attn_result
+        x = x + attn_output
+        x = x + self.mlp(self.ln2(x))
+        return (x, present) if use_cache else x
 
 class GPT(nn.Module):
     def __init__(self, cfg: GPTConfig):
@@ -89,31 +102,74 @@ class GPT(nn.Module):
         elif isinstance(module, nn.Embedding):
             nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx: torch.Tensor, targets: torch.Tensor | None = None):
+    def forward(self, idx: torch.Tensor, targets: torch.Tensor | None = None,
+                *, past_key_values=None, use_cache: bool = False):
         b, t = idx.shape
-        if t > self.config.block_size:
-            raise ValueError(f"sequence length {t} exceeds block_size {self.config.block_size}")
-        positions = torch.arange(t, device=idx.device)
+        if t < 1:
+            raise ValueError("input must contain at least one token")
+        if past_key_values is not None and not use_cache:
+            raise ValueError("past_key_values requires use_cache=True")
+        if past_key_values is not None:
+            if len(past_key_values) != self.config.n_layer:
+                raise ValueError("cached layer count does not match model")
+            if t != 1:
+                raise ValueError("cached decoding accepts one token at a time")
+            past_length = past_key_values[0][0].size(-2)
+            if any(k.size(-2) != past_length or v.size(-2) != past_length
+                   for k, v in past_key_values):
+                raise ValueError("cached sequence lengths differ across layers")
+        else:
+            past_length = 0
+        if t + past_length > self.config.block_size:
+            raise ValueError(
+                f"sequence length {t + past_length} exceeds block_size {self.config.block_size}"
+            )
+        positions = torch.arange(past_length, past_length + t, device=idx.device)
         x = self.drop(self.token_emb(idx) + self.pos_emb(positions))
-        for block in self.blocks:
-            x = block(x)
+        presents = []
+        for layer, block in enumerate(self.blocks):
+            if use_cache:
+                prior = None if past_key_values is None else past_key_values[layer]
+                x, present = block(x, prior, use_cache=True)
+                presents.append(present)
+            else:
+                x = block(x)
         logits = self.head(self.norm(x))
         loss = None
         if targets is not None:
             loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)), targets.reshape(-1))
+        if use_cache:
+            return logits, loss, tuple(presents)
         return logits, loss
 
     @torch.no_grad()
     def generate(self, prompt: bytes, n_tokens: int, temperature: float = 0.8,
-                 top_k: int = 40) -> bytes:
+                 top_k: int = 40, use_kv_cache: bool = True,
+                 stop_sequences: tuple[bytes, ...] = ()) -> bytes:
         if n_tokens < 0 or temperature < 0 or top_k < 0:
             raise ValueError("n_tokens, temperature, and top_k must be nonnegative")
+        if any(not isinstance(stop, bytes) or not stop for stop in stop_sequences):
+            raise ValueError('stop sequences must be nonempty byte strings')
         self.eval()
         device = next(self.parameters()).device
         sequence = bytearray(prompt if prompt else b"\n")
+        initial_length = len(sequence)
+        past = None
         for _ in range(n_tokens):
-            idx = torch.tensor(list(sequence[-self.config.block_size:]), device=device).long()[None]
-            logits, _ = self(idx)
+            if not use_kv_cache:
+                idx = torch.tensor(list(sequence[-self.config.block_size:]),
+                                   device=device, dtype=torch.long)[None]
+                logits, _ = self(idx)
+            elif past is None or past[0][0].size(-2) >= self.config.block_size:
+                # Rebuild cache after context overflow. Learned absolute
+                # positions restart at zero when the context window slides.
+                idx = torch.tensor(list(sequence[-self.config.block_size:]),
+                                   device=device, dtype=torch.long)[None]
+                logits, _, past = self(idx, use_cache=True)
+            else:
+                idx = torch.tensor([[sequence[-1]]], device=device, dtype=torch.long)
+                logits, _, past = self(idx, past_key_values=past, use_cache=True)
+
             scores = logits[0, -1]
             if temperature == 0:
                 token = int(scores.argmax().item())
@@ -124,4 +180,7 @@ class GPT(nn.Module):
                     scores = scores.masked_fill(scores < kth, float("-inf"))
                 token = int(torch.multinomial(F.softmax(scores, dim=-1), 1).item())
             sequence.append(token)
+            for stop in stop_sequences:
+                if len(sequence) - initial_length >= len(stop) and sequence.endswith(stop):
+                    return bytes(sequence[:-len(stop)])
         return bytes(sequence)
