@@ -61,6 +61,35 @@ CI intentionally probes questions absent from that dataset too.
 The terminal interface cannot make it knowledgeable or reliable. For reproducible
 probes run `PYTHONPATH=. python scripts/probe_chat.py --checkpoint checkpoints/demo.pt`.
 
+### Why the old toy chat gives incorrect answers
+
+The legacy `lumolm_chat_cli.py` in earlier downloadable demo bundles
+loads a **synthetic FAQ checkpoint**, typically the ~372K-parameter
+6,000-step model. It is not the newer TinyStories checkpoint and cannot be
+converted into one by renaming its `probe.pt` file. The toy model regularly
+returns incorrect arithmetic (`1+1 -> 11`, etc.), meaningless filler when
+prompted with punctuation, and repeated memorized answers. **These are model
+quality limitations**, not fixed by installing a Python package, changing
+sampling, or hardcoding arithmetic answers.
+
+The maintained launcher is now also available by its earlier filename:
+
+```bash
+# From a cloned LumoLM repository with a compatible toy checkpoint:
+python3 -m pip install -U numpy   # only needed to silence PyTorch's NumPy warning
+python3 lumolm_chat_cli.py --checkpoint checkpoints/probe.pt --show-context
+# Equivalent package interface:
+python3 -m lumolm.chat --checkpoint checkpoints/probe.pt --show-context
+```
+
+`--show-context` reports how many earlier turns fit in the tiny 128-byte
+context window. The CLI now builds and bounds the prompt **before** inference;
+overlong questions raise a clear error instead of silently discarding question
+bytes. With this model, long multi-turn chat remains impractical.
+For story continuation use `python -m lumolm.generate --checkpoint
+checkpoints/story.pt --prompt "Once upon a time"`; TinyStories weights
+are **not** trained for Question/Answer chat.
+
 ## Expanded corpus and real evaluation
 
 The earlier small dialogue test set contains only about 18 KB of repeated
