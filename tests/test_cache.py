@@ -43,9 +43,10 @@ def test_rejects_invalid_cached_decode_lengths():
               past_key_values=cache, use_cache=True)
     with pytest.raises(ValueError, match="requires use_cache"):
         model(torch.ones(1, 1, dtype=torch.long), past_key_values=cache)
+    _, _, full_cache = model(torch.ones(1, 12, dtype=torch.long), use_cache=True)
     with pytest.raises(ValueError, match="exceeds block_size"):
-        model(torch.ones(1, 12, dtype=torch.long),
-              past_key_values=cache, use_cache=True)
+        model(torch.ones(1, 1, dtype=torch.long),
+              past_key_values=full_cache, use_cache=True)
 
 
 def test_non_cached_training_loss_still_has_gradients():
