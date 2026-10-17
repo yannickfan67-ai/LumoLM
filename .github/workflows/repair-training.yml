@@ -30,7 +30,7 @@ jobs:
       - name: Train LumoLM supervised paired short Python bugfix and refactor model
         run: |
           python -m lumolm.repair --train --device cpu --threads 2 \
-            --steps 8000 --batch-size 48 --eval-interval 1000 \
+            --steps 6000 --batch-size 24 --eval-interval 1000 \
             --checkpoint checkpoints/repair.pt --eval-limit 250 \
             | tee repair-training.log
       - name: Re-evaluate saved checkpoint independently on heldout code pairs
@@ -67,7 +67,7 @@ jobs:
       - name: Upload real model weights and evaluation evidence
         uses: actions/upload-artifact@v4
         with:
-          name: lumolm-neural-code-repair-8000
+          name: lumolm-neural-code-repair-6000
           path: |
             checkpoints/repair.pt
             repair-training.log
