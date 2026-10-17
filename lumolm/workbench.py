@@ -20,6 +20,8 @@ from .addition import QUESTION, TASK as ADDITION_TASK, load as load_addition, pr
 from .chat import LumoChat
 from .model import GPT, GPTConfig
 from .train import choose_device
+from .codegen import check_python
+from .auto import AutoAgent
 
 OPS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
        ast.Div: operator.truediv, ast.FloorDiv: operator.floordiv,
@@ -41,9 +43,15 @@ HELP = """Commands:
   /stats notes.txt          lines/words/characters/byte counts
   /find notes.txt | hello   matching lines, case-insensitive
   /summary notes.txt        extractive preview, NOT an AI summary
+  /code Python Fibonacci     write NEW Python file and check syntax (templates)
+  /check script.py           static check, never execute scripts
+  /trace                     show last task routing/step log
   /quit                     leave the terminal
-Unprefixed 0..99 addition -> neural /add if loaded; other arithmetic ->
-calculator. Unprefixed prose -> /chat. Nothing accesses the network or shell.
+Unprefixed requests are routed automatically (visible route steps). Natural
+language coding requests generate limited Python recipes, verify AST syntax and
+write new files under workspace; files are NOT executed. Arithmetic uses the
+reliable calculator and optionally compares a separately trained neural adder.
+Unrecognized prose falls back to weak toy FAQ chat; no network/shell tools.
 """
 
 
@@ -95,6 +103,7 @@ class Workbench:
         self.max_new_tokens = max_new_tokens
         self.models = {}
         self.notes_path = self.root / ".lumolm" / "notes.json"
+        self.last_trace = []
 
     @staticmethod
     def response(text: str, source: str):
@@ -160,11 +169,22 @@ class Workbench:
             return self.response("Empty message.", "system")
         if message == "/help":
             return self.response(HELP, "system")
+        if message == "/trace":
+            return self.response(json.dumps(self.last_trace, ensure_ascii=False, indent=2), "system:trace")
         if message == "/models":
             status = []
             for role, path in self.paths.items():
                 status.append(f"{role}: {'available' if path.is_file() else 'missing'} ({path})")
             return self.response("\n".join(status), "system")
+        if message.startswith("/code "):
+            return AutoAgent(self).execute(message)
+        if message.startswith("/check "):
+            filename = message[len("/check "):].strip()
+            code = self._text(filename)
+            return self.response(json.dumps(check_python(code, filename), ensure_ascii=False),
+                                 "tool:syntax-check")
+        if not message.startswith("/"):
+            return AutoAgent(self).execute(message)
         if message == "/files":
             files = sorted(str(p.relative_to(self.root)) for p in self.root.rglob("*")
                            if p.is_file() and p.suffix.lower() in ALLOWED
@@ -251,6 +271,7 @@ def main(argv=None):
     p.add_argument("--max-new-tokens", type=int, default=100)
     p.add_argument("--message", action="append", help="run one task, repeatable")
     p.add_argument("--json", action="store_true", help="JSON lines with source tags")
+    p.add_argument("--no-trace", action="store_true", help="hide visible action routing steps")
     args = p.parse_args(argv)
     if args.threads < 1 or args.max_new_tokens < 1:
         p.error("threads and max-new-tokens must be positive")
@@ -266,6 +287,9 @@ def main(argv=None):
         if args.json:
             print(json.dumps({"request": message, **result}, ensure_ascii=False))
         else:
+            if not args.no_trace:
+                for step in result.get("trace", []):
+                    print(f"[action:{step['action']}] {step['detail']}")
             print(f"[{result['source']}] {result['text']}")
 
     if args.message:
