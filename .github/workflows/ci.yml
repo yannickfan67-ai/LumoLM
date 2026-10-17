@@ -24,11 +24,11 @@ jobs:
           python -m lumolm.train --data data/demo.txt --checkpoint checkpoints/demo.pt --device cpu --steps 2 --batch-size 2 --block-size 16 --n-layer 1 --n-head 2 --n-embd 32 --eval-iters 1 --eval-interval 1
       - name: Run inference
         run: python -m lumolm.generate --checkpoint checkpoints/demo.pt --prompt 'Hello' --max-new-tokens 12 --device cpu --temperature 0
-      - name: Train a slightly longer conversation diagnostic model (not pretrained)
+      - name: Train conversation examples for reproducible quality diagnostics (not pretrained)
         env:
           OMP_NUM_THREADS: "2"
         run: |
-          python -m lumolm.train --data data/demo.txt --checkpoint checkpoints/probe.pt --device cpu --steps 400 --batch-size 8 --block-size 96 --n-layer 2 --n-head 2 --n-embd 64 --lr 0.001 --eval-interval 200 --eval-iters 4
+          python -m lumolm.train --data data/dialogue_demo.txt --checkpoint checkpoints/probe.pt --device cpu --steps 1000 --batch-size 8 --block-size 128 --n-layer 2 --n-head 2 --n-embd 64 --lr 0.001 --eval-interval 500 --eval-iters 4
       - name: Speak with the trained diagnostic model
         run: PYTHONPATH=. python scripts/probe_chat.py --checkpoint checkpoints/probe.pt --max-new-tokens 60 --device cpu
       - name: Speak using interactive chat adapter
