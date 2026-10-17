@@ -43,7 +43,7 @@ class LumoChat:
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--checkpoint", type=Path, required=True)
-    p.add_argument("--question", help="single question; omit to use interactive mode")
+    p.add_argument("--question", action="append", help="ask once, or repeat for multi-turn chat; omit for interactive mode")
     p.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
     p.add_argument("--max-new-tokens", type=int, default=120)
     p.add_argument("--temperature", type=float, default=0.0)
@@ -60,7 +60,9 @@ def main(argv=None):
     chat = LumoChat(model, args.max_new_tokens, args.temperature, args.top_k)
     print("LumoLM experimental chat: not a trained assistant; expect poor responses.")
     if args.question is not None:
-        print("LumoLM:", chat.ask(args.question))
+        for question in args.question:
+            print("You:", question)
+            print("LumoLM:", chat.ask(question))
     else:
         print("Type 'exit' to finish.")
         while True:
