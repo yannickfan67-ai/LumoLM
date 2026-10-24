@@ -1,0 +1,74 @@
+name: Assemble and publish LumoLM 18M release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: Release tag
+        required: true
+        default: v0.2.0-18m-20261024
+        type: string
+      release_title:
+        description: Release title
+        required: true
+        default: LumoLM 18M Preview — 2026-10-24
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  assemble-and-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository including uploaded parts
+        uses: actions/checkout@v4
+
+      - name: Assemble archive from 11 parts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          base="release-parts/LumoLM-18M-20261024-Complete.zip"
+          for i in $(seq -w 1 11); do
+            part="${base}.part${i}"
+            test -s "$part" || { echo "::error::Missing part: $part"; exit 1; }
+            cat "$part" >> dist/LumoLM-18M-20261024-Complete.zip
+          done
+
+      - name: Verify size, SHA-256 and ZIP integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="dist/LumoLM-18M-20261024-Complete.zip"
+          actual_size="$(stat -c %s "$archive")"
+          expected_size="217829686"
+          actual_sha="$(sha256sum "$archive" | awk '{print $1}')"
+          expected_sha="e4f0ecc1c0042323dfb072626d6a4d59709996b383604f7eee0a19c9f84e9ae9"
+          test "$actual_size" = "$expected_size" || { echo "::error::Size mismatch: $actual_size"; exit 1; }
+          test "$actual_sha" = "$expected_sha" || { echo "::error::SHA-256 mismatch: $actual_sha"; exit 1; }
+          unzip -t "$archive"
+
+      - name: Create GitHub Release and attach complete ZIP
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ inputs.tag_name }}
+          RELEASE_TITLE: ${{ inputs.release_title }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > dist/release-notes.md <<'NOTES'
+          ## LumoLM 18M Preview
+
+          - Expanded experimental model: approximately 18M parameters, 768-byte context.
+          - Includes code, training data, baseline weights and both 18M checkpoints.
+          - Archive SHA-256: `e4f0ecc1c0042323dfb072626d6a4d59709996b383604f7eee0a19c9f84e9ae9`
+          - Smoke-tested on CPU; this does not establish general answer-quality improvement.
+          - Experimental preview. The current 54-question raw-neural benchmark was 8/54.
+
+          See the repository README for usage and limitations.
+          NOTES
+          gh release create "$TAG_NAME" dist/LumoLM-18M-20261024-Complete.zip \
+            --title "$RELEASE_TITLE" \
+            --notes-file dist/release-notes.md
